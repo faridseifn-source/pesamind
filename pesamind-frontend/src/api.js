@@ -8,7 +8,7 @@
 // httpOnly cookie, which is the point). Only the short-lived access token
 // is held here, in memory, for the lifetime of the tab.
 
-const BASE_URL = import.meta?.env?.VITE_API_URL || "http://localhost:4000";
+const BASE_URL = import.meta?.env?.VITE_API_URL || "https://pesamind-backend-n6z1.onrender.com";
 
 let accessToken = null;
 
