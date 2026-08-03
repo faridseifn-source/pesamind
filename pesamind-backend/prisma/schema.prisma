@@ -1,0 +1,380 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum KycStatus {
+  NONE
+  PENDING
+  VERIFIED
+  FAILED
+}
+
+enum WalletType {
+  PERSONAL
+  SHARED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  firstName    String
+  middleName   String?
+  lastName     String
+  email        String   @unique
+  phone        String   @unique
+  passwordHash String
+  language     String   @default("en")
+  avatarUrl    String?
+  kycStatus    KycStatus @default(NONE)
+  role         String   @default("customer") // customer | admin — gates the future Administrator Portal
+
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime? // login blocked until this time once attempts exceed the threshold
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  walletMemberships WalletMember[]
+  categories        Category[]
+  budgets           Budget[]
+  card              Card?
+  notifications     Notification[]
+  kycVerification   KycVerification?
+  kycNidaProfile    KycNidaProfile?
+  refreshTokens     RefreshToken[]
+
+  walletInvitesReceived WalletInvite[] @relation("WalletInviteInvitee")
+  walletInvitesSent     WalletInvite[] @relation("WalletInviteInviter")
+  virtualCardsOwned     VirtualCard[]  @relation("VirtualCardOwner")
+  virtualCardsHeld      VirtualCard[]  @relation("VirtualCardHolder")
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  tokenHash String
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Wallet {
+  id        String     @id @default(cuid())
+  type      WalletType
+  name      String?
+  createdAt DateTime   @default(now())
+
+  members      WalletMember[]
+  transactions Transaction[]
+  invites      WalletInvite[]
+  virtualCards VirtualCard[]
+}
+
+model WalletMember {
+  id       String @id @default(cuid())
+  wallet   Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  walletId String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId   String
+  role     String @default("member") // owner | member
+
+  @@unique([walletId, userId])
+}
+
+// Global default categories have userId = null; user-created ones are scoped to a user.
+model Category {
+  id     String  @id @default(cuid())
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String?
+  name   String
+  color  String
+
+  subcategories Subcategory[]
+  budgets       Budget[]
+  transactions  Transaction[]
+
+  @@unique([userId, name])
+}
+
+model Subcategory {
+  id         String   @id @default(cuid())
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  categoryId String
+  name       String
+
+  transactions Transaction[]
+
+  @@unique([categoryId, name])
+}
+
+model Budget {
+  id         String   @id @default(cuid())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  categoryId String
+  limit      Decimal  @db.Decimal(14, 2)
+  period     String   @default("monthly")
+
+  @@unique([userId, categoryId, period])
+}
+
+model Transaction {
+  id             String       @id @default(cuid())
+  wallet         Wallet       @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  walletId       String
+  category       Category     @relation(fields: [categoryId], references: [id])
+  categoryId     String
+  subcategory    Subcategory? @relation(fields: [subcategoryId], references: [id])
+  subcategoryId  String?
+  amount         Decimal      @db.Decimal(14, 2) // negative = expense, positive = income
+  merchant       String
+  note           String?
+  photoUrl       String?
+  date           DateTime
+  loggedByUserId String
+  loggedByName   String
+  source         String       @default("manual") // manual | scan | voice | import | lipa | gepg | luku
+  createdAt      DateTime     @default(now())
+
+  @@index([walletId, date])
+}
+
+model Card {
+  id           String   @id @default(cuid())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId       String   @unique
+  processorRef String?  // opaque id from the card-issuing processor, once real
+  last4        String
+  holderName   String
+  expiry       String
+  frozen       Boolean  @default(false)
+  dailyLimit   Decimal  @db.Decimal(14, 2) @default(500000)
+  controls     Json     @default("{\"online\":true,\"contactless\":true,\"atm\":true}")
+  balance      Decimal  @db.Decimal(14, 2) @default(0) // authoritative only while provider = mock
+
+  activity CardActivity[]
+}
+
+model CardActivity {
+  id     String   @id @default(cuid())
+  card   Card     @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  cardId String
+  type   String   // topup | oct | receive | transfer_out | bank_transfer | lipa | gepg | luku
+  amount Decimal  @db.Decimal(14, 2)
+  label  String
+  sub    String?
+  date   DateTime @default(now())
+
+  @@index([cardId, date])
+}
+
+model KycVerification {
+  id             String    @id @default(cuid())
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId         String    @unique
+  nidaNumberHash String    // never store the raw NIDA number
+  sessionRef     String?   // opaque ref from the KYC provider for the in-flight attempt
+  status         KycStatus @default(PENDING)
+  method         String?   // otp | kbv
+  attempts       Int       @default(0)
+  verifiedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model Notification {
+  id      String   @id @default(cuid())
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId  String
+  type    String
+  title   String
+  message String
+  read    Boolean  @default(false)
+  date    DateTime @default(now())
+
+  @@index([userId, date])
+}
+
+// Deliberately not a foreign-key relation to User: an audit trail should
+// survive independently of the account record it describes.
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?  // null for pre-account events, e.g. phone verification before registration
+  action    String   // e.g. "auth.login.success", "card.topup.gateway", "kyc.otp.verified"
+  amount    Decimal? @db.Decimal(14, 2)
+  metadata  Json?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+}
+
+// Ensures a client retry of a money-movement request (double-tap, flaky
+// network, etc.) can't be processed twice — the caller sends an
+// Idempotency-Key header; a repeated key with the same user returns the
+// original stored response instead of re-running the operation.
+model IdempotencyKey {
+  id           String   @id @default(cuid())
+  userId       String
+  key          String
+  statusCode   Int
+  responseBody Json
+  createdAt    DateTime @default(now())
+
+  @@unique([userId, key])
+}
+
+// "Forgot password" tokens — single-use, short-lived, stored as a hash only.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([tokenHash])
+}
+
+// Full NIDA demographic record, synced automatically once KYC verification
+// succeeds. Deliberately a separate table from KycVerification (which only
+// tracks the verification attempt itself) so this richer, more sensitive
+// data has its own access boundary — nothing in the regular user-facing API
+// ever joins or returns this table; only the future admin-gated routes do.
+//
+// Every PII field is stored as AES-256-GCM ciphertext (see lib/crypto.js),
+// never in plaintext. Field names carry an "Enc" suffix as a reminder at the
+// schema level that these are not directly queryable/readable values.
+model KycNidaProfile {
+  id     String @id @default(cuid())
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String @unique
+
+  firstNameEnc       String?
+  middleNameEnc      String?
+  lastNameEnc        String?
+  sexEnc             String?
+  dateOfBirthEnc     String?
+  maritalStatusEnc   String?
+  placeOfBirthEnc    String?
+  citizenshipTypeEnc String?
+  nidaPhoneEnc       String? // NIDA-registered phone — additive only, never overwrites the user's primary verified phone
+  regionEnc          String?
+  districtEnc        String?
+  wardEnc            String?
+  villageOrStreetEnc String?
+  photoEnc           String? // encrypted base64 image or image URL, when the provider supplies one
+
+  sourceProvider String    // "mock" | "nida" — which KycProvider implementation supplied this data
+  sourceRef      String?   // opaque, non-sensitive reference from the provider (e.g. their record id)
+  syncStatus     String    @default("pending") // pending | synced | failed
+  syncError      String?   // last error message, if syncStatus = failed — for admin troubleshooting, not customer-facing
+  syncedAt       DateTime? // when the data currently stored was last successfully retrieved
+  lastAttemptAt  DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([syncStatus])
+}
+
+// Pre-registration phone verification. No User exists yet when this is
+// created — it's keyed by phone number, not userId. Once verified, it
+// carries a single-use verifyToken that registration must present to prove
+// the phone was actually confirmed (not just typed into a form).
+model PhoneVerification {
+  id          String    @id @default(cuid())
+  phone       String
+  codeHash    String
+  attempts    Int       @default(0)
+  verified    Boolean   @default(false)
+  verifyToken String?
+  usedAt      DateTime?
+  expiresAt   DateTime
+  createdAt   DateTime  @default(now())
+
+  @@index([phone])
+  @@index([verifyToken])
+}
+
+// Proper consent-based wallet invitation — replaces silently adding someone
+// to a shared wallet. The invited user must explicitly accept before a
+// WalletMember row is created.
+model WalletInvite {
+  id     String @id @default(cuid())
+  wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  walletId String
+
+  invitedUser     User   @relation("WalletInviteInvitee", fields: [invitedUserId], references: [id], onDelete: Cascade)
+  invitedUserId   String
+  invitedByUser   User   @relation("WalletInviteInviter", fields: [invitedByUserId], references: [id], onDelete: Cascade)
+  invitedByUserId String
+
+  status      String    @default("pending") // pending | accepted | declined | revoked
+  createdAt   DateTime  @default(now())
+  respondedAt DateTime?
+
+  @@index([invitedUserId, status])
+  @@index([walletId])
+}
+
+// A virtual card is always controlled by its `owner` and used by its
+// `holder`. For a parent-linked card these are different people (the
+// primary wallet member controls; the invited member holds/spends). For an
+// independent card owner === holder — the same person controls and uses it,
+// and its walletId is that person's own PERSONAL wallet, which nobody else
+// is a member of, so it's naturally invisible to anyone else through the
+// existing wallet-membership access checks used everywhere else in the API.
+model VirtualCard {
+  id     String @id @default(cuid())
+  wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  walletId String
+
+  owner   User   @relation("VirtualCardOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId String
+  holder  User   @relation("VirtualCardHolder", fields: [holderId], references: [id], onDelete: Cascade)
+  holderId String
+
+  type               String   // "parent_linked" | "independent"
+  label              String?
+  last4              String
+  expiry             String
+  frozen             Boolean  @default(false)
+  terminated         Boolean  @default(false)
+  dailyLimit         Decimal  @db.Decimal(14, 2) @default(50000)
+  allowedCategoryIds Json?    // array of category id strings the holder may spend against; null = unrestricted
+  controls           Json     @default("{\"online\":true,\"contactless\":true,\"atm\":true}")
+  balance            Decimal  @db.Decimal(14, 2) @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  activity VirtualCardActivity[]
+
+  @@index([ownerId])
+  @@index([holderId])
+  @@index([walletId])
+}
+
+model VirtualCardActivity {
+  id                 String      @id @default(cuid())
+  card               VirtualCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  cardId             String
+  type               String      // topup | spend | limit_changed | frozen | unfrozen | terminated | categories_updated
+  amount             Decimal?    @db.Decimal(14, 2)
+  label              String
+  performedByUserId  String
+  date               DateTime    @default(now())
+
+  @@index([cardId, date])
+}
