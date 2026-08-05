@@ -18,11 +18,22 @@ const virtualCardsRoutes = require("./modules/virtual-cards/virtual-cards.routes
 const kycRoutes = require("./modules/kyc/kyc.routes");
 const notificationsRoutes = require("./modules/notifications/notifications.routes");
 const adminRoutes = require("./modules/admin/admin.routes");
+const adminAuthRoutes = require("./modules/admin/admin-auth.routes");
+const supportRoutes = require("./modules/support/support.routes");
 
 const app = express();
 
 app.use(helmet());
-app.use(cors({ origin: env.corsOrigin, credentials: true }));
+app.use(cors({
+  origin: (origin, callback) => {
+    // No origin header (e.g. server-to-server, curl) is allowed through —
+    // browsers always send it for cross-origin requests, which is what
+    // this check actually protects against.
+    if (!origin || env.corsOrigins.includes(origin)) return callback(null, true);
+    callback(new Error("Not allowed by CORS"));
+  },
+  credentials: true,
+}));
 app.use(cookieParser());
 app.use(express.json({ limit: "2mb" }));
 if (env.nodeEnv !== "test") app.use(morgan(env.nodeEnv === "production" ? "combined" : "dev"));
@@ -39,7 +50,14 @@ app.use("/cards", cardsRoutes);
 app.use("/virtual-cards", virtualCardsRoutes);
 app.use("/kyc", kycRoutes);
 app.use("/notifications", notificationsRoutes);
+// Order matters: /admin/auth must be mounted before /admin, since
+// adminRoutes applies requireAuth+requireAdmin to everything under /admin
+// as path-prefix middleware — if /admin were mounted first, an
+// unauthenticated request to /admin/auth/login would be intercepted and
+// rejected by that gate before ever reaching the login route itself.
+app.use("/admin/auth", adminAuthRoutes);
 app.use("/admin", adminRoutes);
+app.use("/support", supportRoutes);
 
 app.use(notFoundHandler);
 

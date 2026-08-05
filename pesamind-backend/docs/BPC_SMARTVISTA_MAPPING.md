@@ -8,6 +8,22 @@ structure guide — "SVAP"), so the eventual real connection is a swap of
 `BpcSmartVistaProvider.js` implementing the same `CardIssuingProvider`
 interface — not a redesign of anything else in the app.
 
+## Wallet/account identifier convention
+
+Per explicit product requirement: every card/wallet generation request
+submits the relevant person's **mobile number, local format, no country
+code, WITH the leading zero** (e.g. `0712552287`) as the `account` field —
+never an internal PesaMind id. For an add-on card this is the **holder's**
+number (the person the card is issued to), not the primary member's, even
+though the primary member funds and controls it.
+
+SmartVista is the system of record for the actual wallet/account number —
+we never invent one. Whatever it returns is stored in `processorRef` on
+`Card`/`VirtualCard` (`lib/phone.js` does the format conversion; today's
+simulation generates a plausible-looking reference in
+`BpcSmartVistaSimProvider._simulateCmsWalletNumber()` — a real integration
+replaces only that one method with reading the actual SOAP response).
+
 ## Operation mapping
 
 | Our provider method | Real BPC operation | Source |

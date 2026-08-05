@@ -11,7 +11,10 @@ function required(name, fallback) {
 module.exports = {
   port: Number(process.env.PORT || 4000),
   nodeEnv: process.env.NODE_ENV || "development",
-  corsOrigin: process.env.CORS_ORIGIN || "http://localhost:5173",
+  // Comma-separated list — the customer app and the admin portal are
+  // separate frontend deployments on separate domains, both need to be
+  // allowed here. e.g. "https://pesamind.vercel.app,https://admin.pesamind.co.tz"
+  corsOrigins: (process.env.CORS_ORIGIN || "http://localhost:5173").split(",").map((s) => s.trim()).filter(Boolean),
 
   jwt: {
     accessSecret: required("JWT_ACCESS_SECRET", "dev_access_secret_change_me"),
@@ -19,6 +22,11 @@ module.exports = {
     accessExpiresIn: process.env.JWT_ACCESS_EXPIRES_IN || "15m",
     refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || "30d",
     refreshMaxAgeMs: 30 * 24 * 60 * 60 * 1000, // 30 days — keep in sync with refreshExpiresIn above
+    // Admin sessions are deliberately much shorter-lived than customer
+    // sessions — a stolen admin session cookie is far more damaging than a
+    // stolen customer one, so it should have far less time to be useful.
+    adminAccessExpiresIn: process.env.ADMIN_JWT_ACCESS_EXPIRES_IN || "15m",
+    adminRefreshMaxAgeMs: Number(process.env.ADMIN_SESSION_HOURS || 8) * 60 * 60 * 1000, // 8 hours default
   },
 
   security: {

@@ -3,10 +3,11 @@ const crypto = require("crypto");
 const prisma = require("../../lib/prisma");
 const env = require("../../lib/env");
 const { signAccessToken, signRefreshToken, hashToken, verifyRefreshToken } = require("../../lib/jwt");
-const { conflict, unauthorized, locked, badRequest } = require("../../lib/errors");
+const { conflict, unauthorized, locked, badRequest, forbidden } = require("../../lib/errors");
 const { getCardIssuingProvider } = require("../../services/card-issuing");
 const { getEmailProvider } = require("../../services/email");
 const { writeAudit } = require("../../lib/audit");
+const { isAdminRole } = require("../../lib/adminRoles");
 
 async function registerUser({ firstName, lastName, email, phone, password, phoneVerifyToken }) {
   const existing = await prisma.user.findFirst({ where: { OR: [{ email }, { phone }] } });
@@ -48,6 +49,11 @@ async function authenticate(email, password, ip) {
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user) throw unauthorized("Invalid email or password");
 
+  if (user.blockedByAdmin) {
+    await writeAudit(user.id, "auth.login.blocked_account", { ip });
+    throw forbidden("This account has been blocked. Contact support for assistance.");
+  }
+
   if (user.lockedUntil && user.lockedUntil > new Date()) {
     const minutesLeft = Math.ceil((user.lockedUntil.getTime() - Date.now()) / 60000);
     throw locked(`Too many failed attempts. Try again in ${minutesLeft} minute(s).`);
@@ -69,9 +75,10 @@ async function authenticate(email, password, ip) {
     throw unauthorized("Invalid email or password");
   }
 
-  if (user.failedLoginAttempts > 0 || user.lockedUntil) {
-    await prisma.user.update({ where: { id: user.id }, data: { failedLoginAttempts: 0, lockedUntil: null } });
-  }
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { failedLoginAttempts: 0, lockedUntil: null, lastLoginAt: new Date() },
+  });
   await writeAudit(user.id, "auth.login.success", { ip });
   return user;
 }
@@ -85,6 +92,24 @@ async function issueTokenPair(user) {
       userId: user.id,
       tokenHash: hashToken(refreshToken),
       expiresAt: new Date(Date.now() + env.jwt.refreshMaxAgeMs),
+    },
+  });
+
+  return { accessToken, refreshToken };
+}
+
+// Same mechanism as issueTokenPair, deliberately much shorter-lived — see
+// the comment on env.jwt.adminAccessExpiresIn for why.
+async function issueAdminTokenPair(user) {
+  const expiresInSec = Math.floor(env.jwt.adminRefreshMaxAgeMs / 1000);
+  const accessToken = signAccessToken(user, env.jwt.adminAccessExpiresIn);
+  const refreshToken = signRefreshToken(user, expiresInSec);
+
+  await prisma.refreshToken.create({
+    data: {
+      userId: user.id,
+      tokenHash: hashToken(refreshToken),
+      expiresAt: new Date(Date.now() + env.jwt.adminRefreshMaxAgeMs),
     },
   });
 
@@ -109,6 +134,30 @@ async function rotateRefreshToken(refreshToken) {
 
   const user = await prisma.user.findUniqueOrThrow({ where: { id: payload.sub } });
   return issueTokenPair(user);
+}
+
+// Same rotation logic, but re-issues via issueAdminTokenPair so a refreshed
+// admin session stays short-lived instead of silently upgrading to the
+// 30-day customer token lifetime.
+async function rotateAdminRefreshToken(refreshToken) {
+  let payload;
+  try {
+    payload = verifyRefreshToken(refreshToken);
+  } catch {
+    throw unauthorized("Invalid or expired admin session");
+  }
+
+  const tokenHash = hashToken(refreshToken);
+  const stored = await prisma.refreshToken.findFirst({
+    where: { userId: payload.sub, tokenHash, revoked: false },
+  });
+  if (!stored || stored.expiresAt < new Date()) throw unauthorized("Admin session no longer valid");
+
+  await prisma.refreshToken.update({ where: { id: stored.id }, data: { revoked: true } });
+
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: payload.sub } });
+  if (!isAdminRole(user.role)) throw unauthorized("Admin session no longer valid");
+  return issueAdminTokenPair(user);
 }
 
 async function revokeRefreshToken(refreshToken) {
@@ -179,7 +228,9 @@ module.exports = {
   registerUser,
   authenticate,
   issueTokenPair,
+  issueAdminTokenPair,
   rotateRefreshToken,
+  rotateAdminRefreshToken,
   revokeRefreshToken,
   requestPasswordReset,
   resetPassword,

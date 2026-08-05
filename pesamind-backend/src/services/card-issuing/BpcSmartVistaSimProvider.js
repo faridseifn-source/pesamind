@@ -3,6 +3,7 @@ const { CardIssuingProvider } = require("./CardIssuingProvider");
 const { genCardCredentials } = require("../../lib/cardCredentials");
 const { encryptField } = require("../../lib/crypto");
 const { getSetting } = require("../../lib/settings");
+const { toLocalMobileFormat } = require("../../lib/phone");
 
 /**
  * Simulates a connection to a real Card Management System (CMS) — modeled
@@ -38,20 +39,44 @@ class BpcSmartVistaSimProvider extends CardIssuingProvider {
     return err;
   }
 
+  // Simulates the wallet/account number SmartVista would assign and return
+  // once it receives our mobile-number-keyed generation request. A real
+  // integration replaces this whole method with reading that value straight
+  // out of the actual SOAP response — nothing else in the app needs to
+  // change, since callers only ever see the returned reference, never how
+  // it was produced.
+  _simulateCmsWalletNumber() {
+    return `SV${Math.floor(1000000000 + Math.random() * 8999999999)}`;
+  }
+
   // Real operation: CardLink, ApplType=LKTPNECT ("card for new customer").
   // SVWG §3.11, Table 81/82.
+  //
+  // Per the requested integration behavior: the wallet/account identifier
+  // WE submit to the CMS is the customer's own mobile number in local
+  // format — no country code, WITH the leading zero (e.g. "0712552287") —
+  // not an internal PesaMind id. If an account already exists at SmartVista
+  // for that number, it links to it; otherwise SmartVista provisions a new
+  // one. Either way, SmartVista is the one that generates the actual wallet
+  // number and hands it back to us — we never invent it ourselves. That
+  // returned reference is stored in `Card.processorRef`.
   async issueCard({ userId, holderName }) {
     await this._simulateLatency();
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { phone: true } });
+    const account = toLocalMobileFormat(user.phone); // <account> field in the real createVirtualCard/cardLink request
+
     const binPrefix = await getSetting("card_bin");
     const { last4, fullNumber, cvv } = genCardCredentials(binPrefix);
-
     // Real response is just { status: 1 } plus whatever the CMS assigns as
-    // CardId/CardNumber — we simulate that assignment here.
+    // CardId/CardNumber/account reference — we simulate that assignment here.
+    const cmsWalletNumber = this._simulateCmsWalletNumber();
+
     const card = await prisma.card.create({
       data: {
         userId,
         holderName,
         last4,
+        processorRef: cmsWalletNumber, // the wallet number SmartVista returned for `account`
         fullNumberEnc: encryptField(fullNumber),
         cvvEnc: encryptField(cvv),
         expiry: "09/29",
@@ -67,10 +92,21 @@ class BpcSmartVistaSimProvider extends CardIssuingProvider {
   // SVWG §3.11. For type="independent" it's createVirtualCard — SVWG §3.3,
   // Table 65/66 (request: account, cellPhone, expiryDate, limitValue;
   // response: cardNumber, expiryDate, limitValue, cvv2, pin).
+  //
+  // Same account-identifier rule as issueCard(): the mobile number of the
+  // person the card is actually issued TO (the holder — not the owner who's
+  // requesting it) is what's submitted as `account`. For a parent-linked
+  // card this is deliberately the child/member's own number, not the
+  // primary member's — the add-on card is SmartVista's record for that
+  // specific person, even though the primary member funds and controls it.
   async issueVirtualCard({ walletId, ownerId, holderId, type, label }) {
     await this._simulateLatency();
+    const holder = await prisma.user.findUniqueOrThrow({ where: { id: holderId }, select: { phone: true } });
+    const account = toLocalMobileFormat(holder.phone);
+
     const binPrefix = await getSetting("card_bin");
     const { last4, fullNumber, cvv } = genCardCredentials(binPrefix);
+    const cmsWalletNumber = this._simulateCmsWalletNumber();
 
     const card = await prisma.virtualCard.create({
       data: {
@@ -80,12 +116,13 @@ class BpcSmartVistaSimProvider extends CardIssuingProvider {
         type,
         label: label || null,
         last4,
+        processorRef: cmsWalletNumber,
         fullNumberEnc: encryptField(fullNumber),
         cvvEnc: encryptField(cvv),
         expiry: "09/29",
       },
     });
-    return { id: card.id, last4: card.last4, expiry: card.expiry };
+    return { id: card.id, last4: card.last4, expiry: card.expiry, processorRef: card.processorRef };
   }
 
   // Real operation: BalanceInquiry — SVWG §1.8, Table 33/34.
@@ -173,6 +210,7 @@ class BpcSmartVistaSimProvider extends CardIssuingProvider {
       balance: Number(card.balance),
       frozen: card.frozen,
       controls: card.controls,
+      processorRef: card.processorRef || null, // the wallet number SmartVista returned, once real
     };
   }
 }

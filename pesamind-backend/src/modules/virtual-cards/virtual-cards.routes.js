@@ -108,6 +108,7 @@ function serializeCard(card, forUserId) {
     type: card.type,
     label: card.label,
     last4: card.last4,
+    processorRef: card.processorRef, // CMS-assigned wallet/account number, once real (not sensitive — just a reference)
     expiry: card.expiry,
     frozen: card.frozen,
     terminated: card.terminated,

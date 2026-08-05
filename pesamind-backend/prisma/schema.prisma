@@ -30,10 +30,24 @@ model User {
   language     String   @default("en")
   avatarUrl    String?
   kycStatus    KycStatus @default(NONE)
-  role         String   @default("customer") // customer | admin — gates the future Administrator Portal
+  // customer | admin_viewer | admin_support | admin_super — see lib/adminRoles.js
+  // for the hierarchy. Kept as a plain string (not a Prisma enum) so new
+  // tiers can be added without a migration, same reasoning as elsewhere in
+  // this schema.
+  role         String   @default("customer")
 
   failedLoginAttempts Int       @default(0)
-  lockedUntil         DateTime? // login blocked until this time once attempts exceed the threshold
+  lockedUntil         DateTime? // TEMPORARY brute-force lockout — self-clears, see auth.service.js
+
+  // Admin-initiated block — a deliberate, permanent (until an admin
+  // reverses it) suspension, distinct from the automatic brute-force
+  // lockout above. Checked at login, independent of failedLoginAttempts.
+  blockedByAdmin Boolean   @default(false)
+  blockedReason  String?
+  blockedAt      DateTime?
+  blockedByUserId String?
+
+  lastLoginAt  DateTime? // powers the admin dashboard's "active users" metric
 
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -46,6 +60,7 @@ model User {
   kycVerification   KycVerification?
   kycNidaProfile    KycNidaProfile?
   refreshTokens     RefreshToken[]
+  supportTickets    SupportTicket[]
 
   walletInvitesReceived WalletInvite[] @relation("WalletInviteInvitee")
   walletInvitesSent     WalletInvite[] @relation("WalletInviteInviter")
@@ -359,6 +374,7 @@ model VirtualCard {
   type               String   // "parent_linked" | "independent"
   label              String?
   last4              String
+  processorRef       String?  // CMS-assigned wallet/account number returned on generation (e.g. BPC SmartVista) — see createVirtualCard in BPC_SMARTVISTA_MAPPING.md
   fullNumberEnc      String?  // encrypted full 16-digit PAN — only decrypted on-demand via the /reveal endpoint, for entering into external checkout forms
   cvvEnc             String?  // encrypted CVV, same access pattern
   expiry             String
@@ -403,4 +419,42 @@ model SystemSetting {
   key       String   @id
   value     String
   updatedAt DateTime @updatedAt
+}
+
+// Customer requests/disputes — either raised by the customer in-app, or
+// logged by an admin on the customer's behalf (e.g. after a phone call).
+model SupportTicket {
+  id                    String    @id @default(cuid())
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId                String
+  category              String    // dispute | inquiry | complaint | fraud
+  subject               String
+  description           String
+  status                String    @default("open") // open | in_progress | resolved | closed
+  relatedTransactionId  String?
+  assignedAdminId       String?
+  loggedByAdminId       String?   // set when an admin created this on the customer's behalf, not the customer themselves
+  resolutionNotes       String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  resolvedAt            DateTime?
+
+  @@index([userId, status])
+  @@index([status, createdAt])
+}
+
+// Second factor for admin logins — password auth alone issues no tokens;
+// a one-time code (emailed) must also be verified. Separate from the
+// customer-facing PhoneVerification/PasswordResetToken tables since this
+// gates a fundamentally more sensitive login path.
+model AdminLoginChallenge {
+  id        String    @id @default(cuid())
+  userId    String
+  codeHash  String
+  attempts  Int       @default(0)
+  usedAt    DateTime?
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
 }

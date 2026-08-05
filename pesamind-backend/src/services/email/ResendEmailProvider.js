@@ -27,6 +27,24 @@ class ResendEmailProvider extends EmailProvider {
       throw new Error(`Resend failed to send: ${error.message || JSON.stringify(error)}`);
     }
   }
+
+  async sendAdminLoginCode(toEmail, code) {
+    const { error } = await this.client.emails.send({
+      from: this.fromAddress,
+      to: toEmail,
+      subject: "Your PesaMind admin login code",
+      html: `
+        <div style="font-family: sans-serif; max-width: 420px; margin: 0 auto;">
+          <p>Someone is signing in to the PesaMind Admin Portal with your account.</p>
+          <p style="font-size: 28px; font-weight: 700; letter-spacing: 2px; background: #f3f2ee; padding: 16px; border-radius: 12px; text-align: center;">${code}</p>
+          <p style="color: #666; font-size: 13px;">This code expires in 10 minutes. If this wasn't you, change your password immediately — someone has your admin credentials.</p>
+        </div>
+      `,
+    });
+    if (error) {
+      throw new Error(`Resend failed to send: ${error.message || JSON.stringify(error)}`);
+    }
+  }
 }
 
 module.exports = { ResendEmailProvider };

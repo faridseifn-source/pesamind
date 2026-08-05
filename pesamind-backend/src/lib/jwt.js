@@ -2,15 +2,15 @@ const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const env = require("./env");
 
-function signAccessToken(user) {
+function signAccessToken(user, expiresInOverride) {
   return jwt.sign({ sub: user.id, email: user.email }, env.jwt.accessSecret, {
-    expiresIn: env.jwt.accessExpiresIn,
+    expiresIn: expiresInOverride || env.jwt.accessExpiresIn,
   });
 }
 
-function signRefreshToken(user) {
+function signRefreshToken(user, expiresInOverride) {
   return jwt.sign({ sub: user.id }, env.jwt.refreshSecret, {
-    expiresIn: env.jwt.refreshExpiresIn,
+    expiresIn: expiresInOverride || env.jwt.refreshExpiresIn,
   });
 }
 

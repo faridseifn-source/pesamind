@@ -8,6 +8,11 @@ class EmailProvider {
   async sendPasswordReset(toEmail, code) {
     throw new Error("sendPasswordReset not implemented");
   }
+
+  /** @param {string} toEmail @param {string} code — admin login second-factor code */
+  async sendAdminLoginCode(toEmail, code) {
+    throw new Error("sendAdminLoginCode not implemented");
+  }
 }
 
 module.exports = { EmailProvider };
