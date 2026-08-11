@@ -41,7 +41,12 @@ router.post(
     await prisma.phoneVerification.create({
       data: { phone, codeHash: hashToken(code), expiresAt: new Date(Date.now() + PHONE_OTP_TTL_MS) },
     });
-    await getSmsProvider().sendOtp(`+255${phone}`, code);
+    try {
+      await getSmsProvider().sendOtp(`+255${phone}`, code);
+    } catch (err) {
+      console.error("SMS provider failed to send OTP:", err.message); // eslint-disable-line no-console
+      throw badRequest("We couldn't send a verification code right now. Please try again shortly.");
+    }
     res.json({ sent: true, expiresInSec: Math.floor(PHONE_OTP_TTL_MS / 1000) });
   })
 );

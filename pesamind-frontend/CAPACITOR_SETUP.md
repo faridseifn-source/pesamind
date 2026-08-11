@@ -2,8 +2,12 @@
 
 ## What's already done for you
 
-- `capacitor.config.js` - app ID `com.pesamind.app`, points at this
-  project's own `dist` build output.
+- `capacitor.config.json` - app ID `com.pesamind.app`, points at this
+  project's own `dist` build output. (Originally a `.js` file, but
+  Capacitor's CLI didn't reliably read values from the ES Module syntax
+  this project's `"type": "module"` setting requires - JSON sidesteps
+  that entirely, and it's the format Capacitor's own tooling generates by
+  default anyway.)
 - `package.json` - Capacitor core/CLI added as dependencies, plus three
   new scripts: `cap:sync`, `cap:android`, `cap:ios`.
 - Verified `src/api.js` already always calls the real production backend
@@ -46,14 +50,16 @@ From inside the `pesamind-frontend` folder:
 
 ```
 npm install
-npx cap init
 ```
 
-When `cap init` asks for the app name and app ID, it will likely already
-pick up the values from `capacitor.config.js` - confirm they match
-`PesaMind` and `com.pesamind.app`, or just press enter to accept.
+**Skip `npx cap init`** - `capacitor.config.js` already exists in this
+project (app ID `com.pesamind.app`, app name "PesaMind" already set), so
+running `cap init` will fail with an error about a "non-JSON
+configuration file" since it tries to create a fresh config that
+conflicts with the one already here. There's nothing `cap init` would add
+that isn't already in place - go straight to adding platforms below.
 
-Then add each platform you want to build for:
+Add each platform you want to build for:
 
 ```
 npx cap add android

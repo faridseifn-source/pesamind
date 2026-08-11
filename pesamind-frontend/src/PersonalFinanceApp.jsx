@@ -982,12 +982,11 @@ function realCategoryMonthTotal(transactions, year, month, categoryName, wallet 
 
 /* ---- Unified swipeable insights card: weekly trend / monthly category / 3-month compare ---- */
 
-function SpendGraphCard({ t, transactions, categories, wallet = "personal" }) {
+function SpendGraphCard({ t, transactions, categories, wallet = "personal", onViewCategoryPerformance }) {
   const PANEL_COUNT = 5;
   const [mode, setMode] = useState(0); // 0 weekly, 1 category summary, 2 category comparison (h-bar), 3 category trends, 4 three-month compare
   const [year, setYear] = useState(CURRENT_YEAR);
   const [month, setMonth] = useState(CURRENT_MONTH_IDX);
-  const [pickerOpen, setPickerOpen] = useState(false);
   const [cmpPickerOpen, setCmpPickerOpen] = useState(false);
   const [trendRange, setTrendRange] = useState("6");
   const [customFrom, setCustomFrom] = useState({ year: CURRENT_YEAR, month: Math.max(0, CURRENT_MONTH_IDX - 5) });
@@ -1001,6 +1000,8 @@ function SpendGraphCard({ t, transactions, categories, wallet = "personal" }) {
   const isCurrentMonth = year === CURRENT_YEAR && month === CURRENT_MONTH_IDX;
   const monthData = isCurrentMonth ? currentReal : realCategorySpend(transactions, categories, year, month, wallet);
   const monthTotal = monthData.reduce((s, c) => s + c.total, 0);
+  const currentMonthKeyForPanel = monthKeyOf(CURRENT_YEAR, CURRENT_MONTH_IDX);
+  const currentMonthIncomeForPanel = transactions.filter((x) => x.wallet === wallet && x.amount > 0 && x.date?.startsWith(currentMonthKeyForPanel)).reduce((s, x) => s + x.amount, 0);
   const idx = monthIndex(year, month);
 
   const stepMonth = (delta) => {
@@ -1031,7 +1032,7 @@ function SpendGraphCard({ t, transactions, categories, wallet = "personal" }) {
     trendData.push(row);
   }
 
-  const cmpHeight = Math.min(260, Math.max(140, monthData.length * 38));
+  const cmpHeight = Math.min(180, Math.max(120, monthData.length * 30));
 
   const onStart = (x) => { dragRef.current = { x, active: true }; };
   const onEnd = (x) => {
@@ -1083,7 +1084,7 @@ function SpendGraphCard({ t, transactions, categories, wallet = "personal" }) {
         <div className="flex items-start transition-transform duration-300 ease-out" style={{ width: `${PANEL_COUNT * 100}%`, transform: `translateX(-${mode * (100 / PANEL_COUNT)}%)` }}>
           {/* Panel 0: weekly bar */}
           <div style={{ width: `${100 / PANEL_COUNT}%` }}>
-            <ResponsiveContainer width="100%" height={170}>
+            <ResponsiveContainer width="100%" height={150}>
               <BarChart data={weekly} margin={{ left: -20, right: 4, top: 4 }}>
                 <CartesianGrid vertical={false} stroke={t.border} strokeDasharray="3 3" />
                 <XAxis dataKey="label" tick={{ fill: t.inkFaint, fontSize: 11 }} axisLine={{ stroke: t.border }} tickLine={false} />
@@ -1094,34 +1095,24 @@ function SpendGraphCard({ t, transactions, categories, wallet = "personal" }) {
             </ResponsiveContainer>
           </div>
 
-          {/* Panel 1: monthly category summary (list only) */}
+          {/* Panel 1: compact category summary — full breakdown now lives on its own page (View category performance), kept brief here specifically so this panel doesn't push the whole widget taller than the others. Deliberately always "this month" (currentReal/currentTotal), not the shared navigable year/month other panels use — this panel has no visible month selector of its own, so silently following navigation happening on another panel would be confusing. */}
           <div style={{ width: `${100 / PANEL_COUNT}%` }} className="px-0.5">
-            <MonthNav open={pickerOpen} setOpen={setPickerOpen} />
-            <div className="flex items-center justify-between px-1 mb-1.5">
-              <span className="text-[10.5px] font-semibold uppercase tracking-wide" style={{ color: t.inkFaint }}>Category</span>
-              <div className="flex items-center gap-4">
-                <span className="text-[10.5px] font-semibold uppercase tracking-wide" style={{ color: t.inkFaint }}>Amount</span>
-                <span className="text-[10.5px] font-semibold uppercase tracking-wide w-9 text-right" style={{ color: t.inkFaint }}>%</span>
+            <div className="flex gap-2 mb-2">
+              <div className="flex-1 rounded-[12px] p-2.5" style={{ background: t.cardSoft }}>
+                <p className="text-[10px]" style={{ color: t.inkFaint }}>Income</p>
+                <p className="text-[13.5px] font-bold mt-0.5" style={{ color: t.good, fontFamily: "'IBM Plex Mono', monospace" }}>{fmt(currentMonthIncomeForPanel)}</p>
+              </div>
+              <div className="flex-1 rounded-[12px] p-2.5" style={{ background: t.cardSoft }}>
+                <p className="text-[10px]" style={{ color: t.inkFaint }}>Expenses</p>
+                <p className="text-[13.5px] font-bold mt-0.5" style={{ color: t.ink, fontFamily: "'IBM Plex Mono', monospace" }}>{fmt(currentTotal)}</p>
               </div>
             </div>
-            <div className="space-y-1 mb-1">
-              {monthData.map((c) => {
-                const pct = monthTotal > 0 ? Math.round((c.total / monthTotal) * 100) : 0;
-                return (
-                  <div key={c.category} className="flex items-center gap-1.5 py-1 text-[11.5px] border-b" style={{ color: t.inkSoft, borderColor: t.border }}>
-                    <CategoryDot color={c.color} size={7} />
-                    <span className="truncate flex-1" style={{ color: t.ink, fontWeight: 500 }}>{c.category}</span>
-                    <span className="w-16 text-right" style={{ fontFamily: "'IBM Plex Mono', monospace", color: t.ink, fontWeight: 600 }}>{fmt(c.total)}</span>
-                    <span className="w-9 text-right" style={{ color: t.inkFaint }}>{pct}%</span>
-                  </div>
-                );
-              })}
-              {monthData.length === 0 && <p className="text-center py-3 text-[11.5px]" style={{ color: t.inkFaint }}>No spending recorded.</p>}
-            </div>
-            <div className="flex items-center justify-between px-1 pt-1">
-              <span className="text-[11px] font-semibold" style={{ color: t.inkFaint }}>Total</span>
-              <span className="text-[12.5px] font-bold" style={{ color: t.ink, fontFamily: "'IBM Plex Mono', monospace" }}>{fmt(monthTotal)}</span>
-            </div>
+            <p className="text-[11px] mb-2 px-0.5" style={{ color: t.inkFaint }}>{currentReal[0] ? `${currentReal[0].category} is your biggest category this month.` : "No spending recorded yet this month."}</p>
+            {onViewCategoryPerformance && (
+              <button onClick={onViewCategoryPerformance} className="w-full flex items-center justify-center gap-1.5 py-2 rounded-[12px] text-[12.5px] font-semibold" style={{ background: t.accentSoft, color: t.accent }}>
+                View category performance <ChevronRight size={13} />
+              </button>
+            )}
           </div>
 
           {/* Panel 2: category comparison - horizontal (reversed) bar chart, sorted highest to lowest */}
@@ -1168,7 +1159,7 @@ function SpendGraphCard({ t, transactions, categories, wallet = "personal" }) {
             )}
             {trendCategories.length > 0 ? (
               <>
-                <ResponsiveContainer width="100%" height={170}>
+                <ResponsiveContainer width="100%" height={150}>
                   <LineChart data={trendData} margin={{ left: -20, right: 8, top: 4 }}>
                     <CartesianGrid vertical={false} stroke={t.border} strokeDasharray="3 3" />
                     <XAxis dataKey="label" tick={{ fill: t.inkFaint, fontSize: 10 }} axisLine={{ stroke: t.border }} tickLine={false} />
@@ -1197,7 +1188,7 @@ function SpendGraphCard({ t, transactions, categories, wallet = "personal" }) {
             <div className="flex items-center justify-end mb-1.5">
               <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ color: compareChange <= 0 ? t.good : t.danger, background: compareChange <= 0 ? t.accentSoft : t.dangerSoft }}>{compareChange >= 0 ? "+" : ""}{compareChange}% vs prior</span>
             </div>
-            <ResponsiveContainer width="100%" height={170}>
+            <ResponsiveContainer width="100%" height={150}>
               <BarChart data={last3} margin={{ left: -20, right: 4, top: 4 }}>
                 <CartesianGrid vertical={false} stroke={t.border} strokeDasharray="3 3" />
                 <XAxis dataKey="label" tick={{ fill: t.inkFaint, fontSize: 11 }} axisLine={{ stroke: t.border }} tickLine={false} />
@@ -2008,7 +1999,129 @@ function ExportInsightsSheet({ t, open, onClose }) {
   );
 }
 
-function InsightsPage({ t, transactions, budgets, categories, tr, goBack }) {
+// Dedicated drill-down page for category-level income/expense analysis —
+// pulled out of the old multi-panel SpendGraphCard specifically to cut
+// down on scrolling on the main Insights page. Reuses the same
+// day/week/month/custom date-range logic already used by the Ledger
+// page's filters, rather than inventing a second one.
+function CategoryPerformancePage({ t, transactions, categories, goBack }) {
+  const [rangeType, setRangeType] = useState("month");
+  const [customFrom, setCustomFrom] = useState(TODAY_STR);
+  const [customTo, setCustomTo] = useState(TODAY_STR);
+  const [viewType, setViewType] = useState("expense");
+  const [selectedCategory, setSelectedCategory] = useState(null);
+
+  const personal = transactions.filter((x) => x.wallet === "personal" && inDateRange(x.date, rangeType, customFrom, customTo));
+  const typeFiltered = personal.filter((x) => (viewType === "income" ? x.amount > 0 : x.amount < 0));
+
+  const byCategory = (() => {
+    const map = {};
+    typeFiltered.forEach((x) => { map[x.category] = (map[x.category] || 0) + Math.abs(x.amount); });
+    return Object.entries(map)
+      .map(([category, total]) => ({ category, total: Math.round(total * 100) / 100, color: colorFor(categories, category) }))
+      .sort((a, b) => b.total - a.total);
+  })();
+  const grandTotal = byCategory.reduce((s, c) => s + c.total, 0);
+
+  const categoryTransactions = selectedCategory
+    ? typeFiltered.filter((x) => x.category === selectedCategory).sort((a, b) => (a.date < b.date ? 1 : -1))
+    : [];
+  const categoryTotal = categoryTransactions.reduce((s, x) => s + Math.abs(x.amount), 0);
+
+  const rangeLabel = { today: "Today", week: "This week", month: "This month", custom: "Custom range" }[rangeType];
+  const RANGE_OPTIONS = [["today", "Today"], ["week", "Week"], ["month", "Month"], ["custom", "Custom"]];
+
+  // Drill-down: one category's transactions for the selected period.
+  if (selectedCategory) {
+    return (
+      <div className="px-4 pt-2 pb-6 space-y-3">
+        <div className="flex items-center gap-2">
+          <button onClick={() => setSelectedCategory(null)} className="p-1.5 -ml-1.5 rounded-full" style={{ background: t.cardSoft }}><ArrowLeft size={16} color={t.inkSoft} /></button>
+          <div className="flex items-center gap-1.5 flex-1 min-w-0">
+            <CategoryDot color={colorFor(categories, selectedCategory)} size={9} />
+            <h1 className="text-[17px] font-bold truncate" style={{ color: t.ink, fontFamily: "'Space Grotesk', sans-serif" }}>{selectedCategory}</h1>
+          </div>
+        </div>
+        <Card t={t} className="p-4">
+          <p className="text-[11px]" style={{ color: t.inkFaint }}>{rangeLabel} · {viewType === "income" ? "Income" : "Expenses"}</p>
+          <p className="text-[24px] font-bold mt-0.5" style={{ color: t.ink, fontFamily: "'Space Grotesk', sans-serif" }}>{fmt(categoryTotal)}</p>
+          <p className="text-[11.5px] mt-0.5" style={{ color: t.inkFaint }}>{categoryTransactions.length} transaction{categoryTransactions.length !== 1 ? "s" : ""}</p>
+        </Card>
+        <Card t={t} className="divide-y" style={{ borderColor: t.border }}>
+          {categoryTransactions.length === 0 ? (
+            <p className="text-[12.5px] text-center py-6" style={{ color: t.inkFaint }}>No transactions in this period.</p>
+          ) : categoryTransactions.map((x) => (
+            <div key={x.id} className="flex items-center justify-between py-2.5 px-4">
+              <div className="min-w-0">
+                <p className="text-[13px] font-medium truncate" style={{ color: t.ink }}>{x.merchant}</p>
+                <p className="text-[11px]" style={{ color: t.inkFaint }}>{x.date}</p>
+              </div>
+              <span className="text-[13px] font-semibold shrink-0 ml-2" style={{ color: x.amount > 0 ? t.good : t.ink, fontFamily: "'IBM Plex Mono', monospace" }}>{fmt(x.amount)}</span>
+            </div>
+          ))}
+        </Card>
+      </div>
+    );
+  }
+
+  // Category list, for the selected date range and income/expense type.
+  return (
+    <div className="px-4 pt-2 pb-6 space-y-3">
+      <div className="flex items-center gap-2">
+        <button onClick={goBack} className="p-1.5 -ml-1.5 rounded-full" style={{ background: t.cardSoft }}><ArrowLeft size={16} color={t.inkSoft} /></button>
+        <h1 className="text-[19px] font-bold flex-1" style={{ color: t.ink, fontFamily: "'Space Grotesk', sans-serif" }}>Category performance</h1>
+      </div>
+
+      <div className="flex gap-1.5">
+        {RANGE_OPTIONS.map(([key, label]) => (
+          <button key={key} onClick={() => setRangeType(key)} className="px-3 py-1.5 rounded-full text-[12px] font-semibold"
+            style={rangeType === key ? { background: t.accent, color: "#fff" } : { background: t.cardSoft, color: t.inkSoft, border: `1px solid ${t.border}` }}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {rangeType === "custom" && (
+        <div className="flex gap-2">
+          <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} style={inputStyle(t)} />
+          <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} style={inputStyle(t)} />
+        </div>
+      )}
+
+      <div className="flex gap-1 p-1 rounded-full w-fit" style={{ background: t.cardSoft }}>
+        <button onClick={() => setViewType("expense")} className="px-3.5 py-1.5 rounded-full text-[12px] font-semibold" style={viewType === "expense" ? { background: t.ink, color: t.bg } : { color: t.inkFaint }}>Expenses</button>
+        <button onClick={() => setViewType("income")} className="px-3.5 py-1.5 rounded-full text-[12px] font-semibold" style={viewType === "income" ? { background: t.ink, color: t.bg } : { color: t.inkFaint }}>Income</button>
+      </div>
+
+      <Card t={t} className="p-4">
+        <p className="text-[11px]" style={{ color: t.inkFaint }}>{rangeLabel} total {viewType === "income" ? "income" : "expenses"}</p>
+        <p className="text-[26px] font-bold mt-0.5" style={{ color: t.ink, fontFamily: "'Space Grotesk', sans-serif" }}>{fmt(grandTotal)}</p>
+      </Card>
+
+      <Card t={t} className="divide-y" style={{ borderColor: t.border }}>
+        {byCategory.length === 0 ? (
+          <p className="text-[12.5px] text-center py-6" style={{ color: t.inkFaint }}>No {viewType === "income" ? "income" : "expenses"} in this period.</p>
+        ) : byCategory.map((c) => {
+          const pct = grandTotal > 0 ? Math.round((c.total / grandTotal) * 100) : 0;
+          return (
+            <button key={c.category} onClick={() => setSelectedCategory(c.category)} className="w-full flex items-center justify-between py-3 px-4">
+              <div className="flex items-center gap-2 min-w-0">
+                <CategoryDot color={c.color} size={9} />
+                <span className="text-[13px] font-medium truncate" style={{ color: t.ink }}>{c.category}</span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0 ml-2">
+                <span className="text-[11px]" style={{ color: t.inkFaint }}>{pct}%</span>
+                <span className="text-[13px] font-semibold" style={{ color: t.ink, fontFamily: "'IBM Plex Mono', monospace" }}>{fmt(c.total)}</span>
+                <ChevronRight size={14} color={t.inkFaint} />
+              </div>
+            </button>
+          );
+        })}
+      </Card>
+    </div>
+  );
+}
+
+function InsightsPage({ t, transactions, budgets, categories, tr, goBack, onViewCategoryPerformance }) {
   // Scoped to the current calendar month specifically — every figure here
   // ("monthly income," "this month's budget," etc.) is meant to represent
   // this month, not the customer's entire transaction history. Previously
@@ -2077,7 +2190,7 @@ function InsightsPage({ t, transactions, budgets, categories, tr, goBack }) {
       </Card>
 
       {/* Full analytics: weekly / category summary / comparison / trends / 3-month */}
-      <SpendGraphCard t={t} transactions={transactions} categories={categories} wallet="personal" />
+      <SpendGraphCard t={t} transactions={transactions} categories={categories} wallet="personal" onViewCategoryPerformance={onViewCategoryPerformance} />
 
       {/* Budget performance */}
       <div>
@@ -2218,8 +2331,9 @@ function TxDetailSheet({ t, tx, open, onClose, categories, onAddCategory, onAddS
 
 function DateFilterSheet({ t, open, onClose, preset, setPreset, customFrom, setCustomFrom, customTo, setCustomTo, tr }) {
   const presets = [
-    { key: "all", label: tr("allTime") }, { key: "today", label: tr("today") }, { key: "yesterday", label: tr("yesterday") },
-    { key: "week", label: tr("thisWeek") }, { key: "month", label: tr("thisMonth") }, { key: "custom", label: tr("custom") },
+    { key: "today", label: tr("today") }, { key: "yesterday", label: tr("yesterday") },
+    { key: "week", label: tr("thisWeek") }, { key: "month", label: tr("thisMonth") },
+    { key: "custom", label: tr("custom") }, { key: "all", label: tr("allTime") },
   ];
   return (
     <BottomSheet t={t} open={open} onClose={onClose} title={tr("dateRange")}>
@@ -2264,7 +2378,7 @@ function LedgerTxRow({ t, tx, categories, selectMode, selected, onToggleSelect, 
 function LedgerPage({ t, transactions, onAdd, onUpdate, onDelete, onDeleteMany, goImport, categories, onAddCategory, onAddSubcategory, tr }) {
   const [filter, setFilter] = useState("All");
   const [search, setSearch] = useState("");
-  const [datePreset, setDatePreset] = useState("all");
+  const [datePreset, setDatePreset] = useState("today");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
   const [dateSheetOpen, setDateSheetOpen] = useState(false);
@@ -2317,7 +2431,7 @@ function LedgerPage({ t, transactions, onAdd, onUpdate, onDelete, onDeleteMany, 
         {search && <button onClick={() => setSearch("")} className="absolute" style={{ right: 10, top: 9 }}><X size={16} color={t.inkFaint} /></button>}
       </div>
 
-      <button onClick={() => setDateSheetOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-semibold mb-2.5" style={{ background: datePreset !== "all" ? t.accentSoft : t.cardSoft, color: datePreset !== "all" ? t.good : t.inkSoft, border: `1px solid ${t.border}` }}>
+      <button onClick={() => setDateSheetOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-semibold mb-2.5" style={{ background: datePreset !== "today" ? t.accentSoft : t.cardSoft, color: datePreset !== "today" ? t.good : t.inkSoft, border: `1px solid ${t.border}` }}>
         <Calendar size={13} /> {tr("dateRange")}: {datePresetLabel} <ChevronDown size={13} />
       </button>
 
@@ -4395,7 +4509,110 @@ function PendingInviteRow({ t, invite, onAccept, onDecline }) {
   );
 }
 
-function WalletsPage({ t, transactions, onAdd, walletsList, user, myInvites, onAcceptInvite, onDeclineInvite, onCreateSharedWallet, onRefreshWallets, setActive, categories, onAddCategory, onAddSubcategory, tr }) {
+// Full transaction list for one wallet (personal or shared), with the
+// same date-range filtering already used on Ledger and Category
+// Performance — reached by tapping "View all" on the compact recent-
+// activity widget, which itself only shows the last 4 to avoid the
+// scrolling this page exists to move elsewhere.
+function WalletActivityPage({ t, transactions, categories, wallet, walletLabel, showLogger, goBack, filterUserId, filterUserName }) {
+  const [rangeType, setRangeType] = useState("today");
+  const [customFrom, setCustomFrom] = useState(TODAY_STR);
+  const [customTo, setCustomTo] = useState(TODAY_STR);
+
+  const filtered = transactions
+    .filter((x) => x.wallet === wallet && (!filterUserId || x.loggedByUserId === filterUserId) && inDateRange(x.date, rangeType, customFrom, customTo))
+    .sort((a, b) => (a.date < b.date ? 1 : -1));
+  const income = filtered.filter((x) => x.amount > 0).reduce((s, x) => s + x.amount, 0);
+  const expenses = filtered.filter((x) => x.amount < 0).reduce((s, x) => s + x.amount, 0);
+
+  const RANGE_OPTIONS = [["today", "Today"], ["week", "Week"], ["month", "Month"], ["custom", "Custom"], ["all", "All time"]];
+
+  return (
+    <div className="px-4 pt-2 pb-6 space-y-3">
+      <div className="flex items-center gap-2">
+        <button onClick={goBack} className="p-1.5 -ml-1.5 rounded-full" style={{ background: t.cardSoft }}><ArrowLeft size={16} color={t.inkSoft} /></button>
+        <h1 className="text-[19px] font-bold flex-1 truncate" style={{ color: t.ink, fontFamily: "'Space Grotesk', sans-serif" }}>{filterUserName ? `${filterUserName}'s activity` : walletLabel}</h1>
+      </div>
+
+      <div className="flex gap-1.5 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+        {RANGE_OPTIONS.map(([key, label]) => (
+          <button key={key} onClick={() => setRangeType(key)} className="px-3 py-1.5 rounded-full text-[12px] font-semibold shrink-0"
+            style={rangeType === key ? { background: t.accent, color: "#fff" } : { background: t.cardSoft, color: t.inkSoft, border: `1px solid ${t.border}` }}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {rangeType === "custom" && (
+        <div className="flex gap-2">
+          <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} style={inputStyle(t)} />
+          <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} style={inputStyle(t)} />
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-2">
+        <Card t={t} className="p-3"><p className="text-[10.5px]" style={{ color: t.inkFaint }}>Income</p><p className="text-[15px] font-bold mt-0.5" style={{ color: t.good, fontFamily: "'IBM Plex Mono', monospace" }}>{fmt(income)}</p></Card>
+        <Card t={t} className="p-3"><p className="text-[10.5px]" style={{ color: t.inkFaint }}>Expenses</p><p className="text-[15px] font-bold mt-0.5" style={{ color: t.ink, fontFamily: "'IBM Plex Mono', monospace" }}>{fmt(expenses)}</p></Card>
+      </div>
+
+      <Card t={t} className="px-3">
+        {filtered.length ? filtered.map((tx) => <TxRow key={tx.id} t={t} tx={tx} categories={categories} showLogger={showLogger} />) : <p className="py-8 text-center text-[13px]" style={{ color: t.inkFaint }}>No transactions in this period.</p>}
+      </Card>
+    </div>
+  );
+}
+
+// Compact per-member spending comparison for the shared wallet — a
+// simple sorted list with proportional bars gives both individual
+// visibility and side-by-side comparison in one glance, no separate
+// chart needed to satisfy both asks at once. Deliberately just two
+// period options (not the full 5-way filter) to stay compact here; full
+// filtering is available one tap away via WalletActivityPage.
+function MemberSpendCard({ t, transactions, members, user, onSelectMember }) {
+  const [period, setPeriod] = useState("month"); // "week" | "month"
+
+  const filtered = transactions.filter((x) => x.wallet === "shared" && x.amount < 0 && inDateRange(x.date, period));
+  const grandTotal = filtered.reduce((s, x) => s + Math.abs(x.amount), 0);
+
+  const rows = members
+    .map((m) => {
+      const isMe = m.userId === user?.id;
+      const total = filtered.filter((x) => x.loggedByUserId === m.userId).reduce((s, x) => s + Math.abs(x.amount), 0);
+      return { userId: m.userId, name: isMe ? "You" : `${m.user?.firstName || ""} ${m.user?.lastName || ""}`.trim() || "Member", total };
+    })
+    .sort((a, b) => b.total - a.total);
+
+  return (
+    <div className="mb-4">
+      <div className="flex items-center justify-between mb-2">
+        <SectionLabel t={t}>By member</SectionLabel>
+        <div className="flex gap-0.5 p-0.5 rounded-full" style={{ background: t.cardSoft }}>
+          <button onClick={() => setPeriod("week")} className="px-2.5 py-1 rounded-full text-[11px] font-semibold" style={period === "week" ? { background: t.ink, color: t.bg } : { color: t.inkFaint }}>Week</button>
+          <button onClick={() => setPeriod("month")} className="px-2.5 py-1 rounded-full text-[11px] font-semibold" style={period === "month" ? { background: t.ink, color: t.bg } : { color: t.inkFaint }}>Month</button>
+        </div>
+      </div>
+      <Card t={t} className="p-3.5 space-y-3">
+        {rows.length === 0 ? (
+          <p className="text-center py-3 text-[12px]" style={{ color: t.inkFaint }}>No members yet.</p>
+        ) : rows.map((r) => {
+          const pct = grandTotal > 0 ? Math.round((r.total / grandTotal) * 100) : 0;
+          return (
+            <button key={r.userId} onClick={() => onSelectMember(r.userId, r.name)} className="w-full text-left">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[12.5px] font-medium" style={{ color: t.ink }}>{r.name}</span>
+                <span className="text-[12.5px] font-semibold" style={{ color: t.ink, fontFamily: "'IBM Plex Mono', monospace" }}>{fmt(r.total)}</span>
+              </div>
+              <div className="w-full h-1.5 rounded-full" style={{ background: t.bgSoft }}>
+                <div className="h-full rounded-full" style={{ width: `${pct}%`, background: t.gold }} />
+              </div>
+            </button>
+          );
+        })}
+      </Card>
+    </div>
+  );
+}
+
+function WalletsPage({ t, transactions, onAdd, walletsList, user, myInvites, onAcceptInvite, onDeclineInvite, onCreateSharedWallet, onRefreshWallets, setActive, categories, onAddCategory, onAddSubcategory, tr, onOpenWalletActivity }) {
   const [view, setView] = useState("personal");
   const [sheetOpen, setSheetOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -4491,6 +4708,10 @@ function WalletsPage({ t, transactions, onAdd, walletsList, user, myInvites, onA
         <Card t={t} className="p-4"><p className="text-[12px]" style={{ color: t.inkFaint }}>{tr("monthlyExpenses")}</p><p className="text-[17px] font-bold mt-0.5" style={{ color: t.ink, fontFamily: "'IBM Plex Mono', monospace" }}>{fmt(expenses)}</p></Card>
       </div>
 
+      {hasShared && activeWallet === "shared" && sharedWallet.members?.length > 0 && (
+        <MemberSpendCard t={t} transactions={transactions} members={sharedWallet.members} user={user} onSelectMember={(userId, name) => onOpenWalletActivity({ wallet: "shared", filterUserId: userId, filterUserName: name, showLogger: false })} />
+      )}
+
       {hasShared && activeWallet === "shared" && (
         <button onClick={() => setActive("virtualcards")} className="w-full flex items-center justify-between p-4 rounded-[18px] mb-4" style={{ background: t.cardSoft, border: `1px solid ${t.border}` }}>
           <div className="flex items-center gap-3"><div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: t.accentSoft }}><CreditCard size={16} color={t.good} /></div><div className="text-left"><p className="text-[13.5px] font-semibold" style={{ color: t.ink }}>Add-on cards</p><p className="text-[11.5px]" style={{ color: t.inkFaint }}>Issue and manage shared add-on cards</p></div></div>
@@ -4498,8 +4719,13 @@ function WalletsPage({ t, transactions, onAdd, walletsList, user, myInvites, onA
         </button>
       )}
 
-      <SectionLabel t={t}>{activeWallet === "personal" ? tr("recentTransactions") : tr("sharedActivity")}</SectionLabel>
-      <Card t={t} className="px-3">{sorted.length ? sorted.map((tx) => <TxRow key={tx.id} t={t} tx={tx} categories={categories} showLogger={activeWallet === "shared"} />) : <p className="py-8 text-center text-[13px]" style={{ color: t.inkFaint }}>{tr("noActivityWallet")}</p>}</Card>
+      <div className="flex items-center justify-between mb-1">
+        <SectionLabel t={t}>{activeWallet === "personal" ? tr("recentTransactions") : tr("sharedActivity")}</SectionLabel>
+        {sorted.length > 4 && (
+          <button onClick={() => onOpenWalletActivity({ wallet: activeWallet, walletLabel: activeWallet === "personal" ? tr("recentTransactions") : tr("sharedActivity"), showLogger: activeWallet === "shared" })} className="text-[11.5px] font-semibold" style={{ color: t.accent }}>View all</button>
+        )}
+      </div>
+      <Card t={t} className="px-3">{sorted.length ? sorted.slice(0, 4).map((tx) => <TxRow key={tx.id} t={t} tx={tx} categories={categories} showLogger={activeWallet === "shared"} />) : <p className="py-8 text-center text-[13px]" style={{ color: t.inkFaint }}>{tr("noActivityWallet")}</p>}</Card>
       <button onClick={() => setSheetOpen(true)} className="fixed z-40 w-14 h-14 rounded-full flex items-center justify-center shadow-lg" style={{ background: activeWallet === "shared" ? t.gold : t.accent, right: "max(1.25rem, calc(50% - 195px))", bottom: 92 }}><Plus size={26} color="#fff" /></button>
       <AddTxSheet t={t} open={sheetOpen} onClose={() => setSheetOpen(false)} onAdd={onAdd} wallet={activeWallet} loggedByOptions={activeWallet === "shared" ? otherMembers.map((m) => m.user?.firstName).concat("You") : undefined} categories={categories} onAddCategory={onAddCategory} onAddSubcategory={onAddSubcategory} />
       {sharedWallet && <InviteSheet t={t} open={inviteOpen} onClose={() => setInviteOpen(false)} walletId={sharedWallet.id} onInvited={async () => { await onRefreshWallets(); await loadCapacity(); }} />}
@@ -6002,7 +6228,36 @@ function CurrencyPreferenceCard({ t }) {
   );
 }
 
-function ProfilePage({ t, user, avatarUrl, setAvatarUrl, goBack, tr, onLogout, onUpdateProfileName, onGoAdmin, onGoSupport }) {
+// One parameterized page for every Profile setting that used to be an
+// inline card directly on the Profile page — each was taking up real
+// vertical space whether or not the customer cared about it right now.
+// A single page keyed by `setting` avoids duplicating the same back-
+// button/title wrapper six separate times for what's otherwise the same
+// shape of screen.
+function ProfileSettingPage({ t, setting, goBack, user, onUpdateProfileName, tr }) {
+  const CONFIG = {
+    accountDetails: { title: tr("accountDetails"), render: () => <NameCorrectionCard t={t} user={user} onUpdateProfileName={onUpdateProfileName} tr={tr} /> },
+    bundles: { title: "Transactional bundles", render: () => <BundlesCard t={t} /> },
+    pushNotifications: { title: "Push notifications", render: () => <PushNotificationsCard t={t} /> },
+    currency: { title: "Running currency", render: () => <CurrencyPreferenceCard t={t} /> },
+    biometric: { title: "Face ID / biometric login", render: () => <BiometricDevicesCard t={t} /> },
+    password: { title: "Change password", render: () => <ChangePasswordCard t={t} /> },
+  };
+  const entry = CONFIG[setting];
+  if (!entry) return null;
+
+  return (
+    <div className="px-4 pt-2 pb-8">
+      <div className="flex items-center gap-2 mb-4">
+        <button onClick={goBack} className="p-1.5 -ml-1.5 rounded-full" style={{ background: t.cardSoft }}><ArrowLeft size={16} color={t.inkSoft} /></button>
+        <h1 className="text-[19px] font-bold" style={{ color: t.ink, fontFamily: "'Space Grotesk', sans-serif" }}>{entry.title}</h1>
+      </div>
+      {entry.render()}
+    </div>
+  );
+}
+
+function ProfilePage({ t, user, avatarUrl, setAvatarUrl, goBack, tr, onLogout, onUpdateProfileName, onGoAdmin, onGoSupport, onOpenSetting }) {
   const fileRef = useRef(null);
   const handleFile = (e) => {
     const file = e.target.files?.[0];
@@ -6034,15 +6289,20 @@ function ProfilePage({ t, user, avatarUrl, setAvatarUrl, goBack, tr, onLogout, o
         </div>
       </div>
 
-      <SectionLabel t={t}>{tr("accountDetails")}</SectionLabel>
-      <NameCorrectionCard t={t} user={user} onUpdateProfileName={onUpdateProfileName} tr={tr} />
-
-      <SectionLabel t={t}>Password</SectionLabel>
-      <div className="mb-5"><BundlesCard t={t} /></div>
-      <div className="mb-5"><PushNotificationsCard t={t} /></div>
-      <div className="mb-5"><CurrencyPreferenceCard t={t} /></div>
-      <div className="mb-5"><BiometricDevicesCard t={t} /></div>
-      <div className="mb-5"><ChangePasswordCard t={t} /></div>
+      <SectionLabel t={t}>Settings</SectionLabel>
+      {[
+        { key: "accountDetails", label: tr("accountDetails"), icon: User },
+        { key: "currency", label: "Running currency", icon: Globe },
+        { key: "biometric", label: "Face ID / biometric login", icon: Fingerprint },
+        { key: "password", label: "Change password", icon: Lock },
+        { key: "bundles", label: "Transactional bundles", icon: Package },
+        { key: "pushNotifications", label: "Push notifications", icon: Bell },
+      ].map(({ key, label, icon: Icon }) => (
+        <button key={key} onClick={() => onOpenSetting(key)} className="w-full flex items-center justify-between p-3.5 rounded-[14px] mb-2.5" style={{ background: t.cardSoft, border: `1px solid ${t.border}` }}>
+          <div className="flex items-center gap-2.5"><Icon size={16} color={t.inkSoft} /><span className="text-[13px] font-semibold" style={{ color: t.ink }}>{label}</span></div>
+          <ChevronRight size={16} color={t.inkFaint} />
+        </button>
+      ))}
 
       <button onClick={onGoSupport} className="w-full flex items-center justify-between p-3.5 rounded-[14px] mb-3" style={{ background: t.cardSoft, border: `1px solid ${t.border}` }}>
         <div className="flex items-center gap-2.5"><MessageSquareWarning size={16} color={t.accent} /><span className="text-[13px] font-semibold" style={{ color: t.ink }}>Help & support</span></div>
@@ -6103,6 +6363,10 @@ function App() {
   const [authError, setAuthError] = useState("");
   const [user, setUser] = useState(null);
   const [active, setActive] = useState("home");
+  const [walletActivityParams, setWalletActivityParams] = useState(null);
+  const openWalletActivity = (params) => { setWalletActivityParams(params); setActive("walletActivity"); };
+  const [profileSetting, setProfileSetting] = useState(null);
+  const openProfileSetting = (key) => { setProfileSetting(key); setActive("profileSetting"); };
   const [profileReturnTab, setProfileReturnTab] = useState("home");
   const [notificationsReturnTab, setNotificationsReturnTab] = useState("home");
   const [transactions, setTransactions] = useState([]);
@@ -6519,7 +6783,8 @@ function App() {
         <Header t={t} dark={dark} setDark={setDark} user={user} avatarUrl={avatarUrl} notifications={notifications} language={language} setLanguage={setLanguage} tr={tr} onAvatarClick={openProfile} onOpenNotifications={openNotifications} />
         <div style={{ paddingBottom: 84 }}>
           {active === "home" && <HomePage t={t} transactions={transactions} budgets={budgets} categories={categories} categoryIdByName={categoryIdByName} refreshCardAndTransactions={refreshCardAndTransactions} user={user} tr={tr} language={language} setActive={setActive} onAdd={addTransaction} onUpdate={updateTransaction} onAddCategory={addCategory} onAddSubcategory={addSubcategory} kycVerified={kycVerified} setKycVerified={setKycVerified} />}
-          {active === "insights" && <InsightsPage t={t} transactions={transactions} budgets={budgets} categories={categories} tr={tr} goBack={() => setActive("home")} />}
+          {active === "insights" && <InsightsPage t={t} transactions={transactions} budgets={budgets} categories={categories} tr={tr} goBack={() => setActive("home")} onViewCategoryPerformance={() => setActive("categoryPerformance")} />}
+          {active === "categoryPerformance" && <CategoryPerformancePage t={t} transactions={transactions} categories={categories} goBack={() => setActive("insights")} />}
           {active === "ledger" && <LedgerPage t={t} transactions={transactions} onAdd={addTransaction} onUpdate={updateTransaction} onDelete={deleteTransaction} onDeleteMany={deleteManyTransactions} goImport={() => setActive("ingest")} categories={categories} onAddCategory={addCategory} onAddSubcategory={addSubcategory} tr={tr} />}
           {active === "ingest" && <IngestPage t={t} onCommit={addMany} goBack={() => setActive("ledger")} categories={categories} />}
           {active === "budget" && <BudgetPage t={t} budgets={budgets} onUpsertBudget={upsertBudget} onRemoveBudget={removeBudget} transactions={transactions} categories={categories} onAddCategory={addCategory} tr={tr} setActive={setActive} />}
@@ -6529,9 +6794,11 @@ function App() {
               cardFrozen={cardFrozen} setCardFrozen={setCardFrozen} cardControls={cardControls} setCardControls={setCardControls}
               dailyLimit={dailyLimit} setDailyLimit={setDailyLimit} kycVerified={kycVerified} setKycVerified={setKycVerified} tr={tr} language={language} />
           )}
-          {active === "wallets" && <WalletsPage t={t} transactions={transactions} onAdd={addTransaction} walletsList={walletsList} user={user} myInvites={myInvites} onAcceptInvite={handleAcceptInvite} onDeclineInvite={handleDeclineInvite} onCreateSharedWallet={handleCreateSharedWallet} onRefreshWallets={refreshWallets} setActive={setActive} categories={categories} onAddCategory={addCategory} onAddSubcategory={addSubcategory} tr={tr} />}
+          {active === "wallets" && <WalletsPage t={t} transactions={transactions} onAdd={addTransaction} walletsList={walletsList} user={user} myInvites={myInvites} onAcceptInvite={handleAcceptInvite} onDeclineInvite={handleDeclineInvite} onCreateSharedWallet={handleCreateSharedWallet} onRefreshWallets={refreshWallets} setActive={setActive} categories={categories} onAddCategory={addCategory} onAddSubcategory={addSubcategory} tr={tr} onOpenWalletActivity={openWalletActivity} />}
+          {active === "walletActivity" && walletActivityParams && <WalletActivityPage t={t} transactions={transactions} categories={categories} goBack={() => setActive("wallets")} {...walletActivityParams} />}
           {active === "virtualcards" && <VirtualCardsPage t={t} goBack={() => setActive("wallets")} categories={categories} categoryIdByName={categoryIdByName} walletsList={walletsList} user={user} tr={tr} language={language} onMainCardChanged={refreshCardAndTransactions} kycVerified={kycVerified} setKycVerified={setKycVerified} />}
-          {active === "profile" && <ProfilePage t={t} user={user} avatarUrl={avatarUrl} setAvatarUrl={setAvatarUrl} goBack={() => setActive(profileReturnTab)} tr={tr} onLogout={handleLogout} onUpdateProfileName={updateProfileName} onGoAdmin={() => setActive("admin")} onGoSupport={() => setActive("support")} />}
+          {active === "profile" && <ProfilePage t={t} user={user} avatarUrl={avatarUrl} setAvatarUrl={setAvatarUrl} goBack={() => setActive(profileReturnTab)} tr={tr} onLogout={handleLogout} onUpdateProfileName={updateProfileName} onGoAdmin={() => setActive("admin")} onGoSupport={() => setActive("support")} onOpenSetting={openProfileSetting} />}
+          {active === "profileSetting" && <ProfileSettingPage t={t} setting={profileSetting} goBack={() => setActive("profile")} user={user} onUpdateProfileName={updateProfileName} tr={tr} />}
           {active === "notifications" && <NotificationsPage t={t} notifications={notifications} setNotifications={setNotifications} tr={tr} goBack={() => setActive(notificationsReturnTab)} />}
           {active === "admin" && <AdminPage t={t} goBack={() => setActive("profile")} />}
           {active === "support" && <SupportPage t={t} transactions={transactions} goBack={() => setActive("profile")} />}

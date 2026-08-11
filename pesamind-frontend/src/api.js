@@ -235,6 +235,7 @@ function toFrontendTx(t, walletTypeById) {
     date: t.date.slice(0, 10),
     wallet: walletTypeById[t.walletId] === "SHARED" ? "shared" : "personal",
     loggedBy: t.loggedByName,
+    loggedByUserId: t.loggedByUserId || null,
     note: t.note || undefined,
     photoUrl: t.photoUrl || undefined,
     reference: t.reference || undefined,
