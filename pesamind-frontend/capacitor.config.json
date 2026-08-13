@@ -1,0 +1,13 @@
+{
+  "appId": "com.pesamind.app",
+  "appName": "PesaMind",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https",
+    "iosScheme": "https",
+    "hostname": "localhost"
+  },
+  "ios": {
+    "contentInset": "automatic"
+  }
+}
