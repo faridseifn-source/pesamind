@@ -1,0 +1,20 @@
+{
+  "appId": "com.pesamind.app",
+  "appName": "PesaMind",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https",
+    "iosScheme": "https",
+    "hostname": "localhost"
+  },
+  "ios": {
+    "contentInset": "automatic"
+  },
+  "plugins": {
+    "CapacitorPasskey": {
+      "origin": "https://pesamind.vercel.app",
+      "autoShim": true,
+      "domains": ["pesamind.vercel.app"]
+    }
+  }
+}
